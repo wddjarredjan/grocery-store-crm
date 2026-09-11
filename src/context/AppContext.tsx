@@ -31,6 +31,7 @@ interface AppContextType {
   switchUserDirect: (user: User) => void;
   addUser: (user: Omit<User, 'id'>) => void;
   updateUser: (id: string, updates: Partial<User>) => void;
+  deleteUser: (id: string) => void;
   hasRole: (roles: UserRole | UserRole[]) => boolean;
 
   // Inventory
@@ -364,6 +365,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updates } : u)));
     setCurrentUser((prev) => (prev.id === id ? { ...prev, ...updates } : prev));
   }, []);
+
+  const deleteUser = useCallback((id: string) => {
+    setUsers((prev) => {
+      const remaining = prev.filter((user) => user.id !== id);
+      if (currentUser.id === id) {
+        setCurrentUser(remaining[0] ?? INITIAL_USERS[0]);
+      }
+      return remaining;
+    });
+  }, [currentUser.id]);
 
   // Web Notification Trigger
   const triggerNotification = useCallback((title: string, body: string) => {
@@ -799,6 +810,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     switchUserDirect,
     addUser,
     updateUser,
+    deleteUser,
     hasRole,
 
     products,

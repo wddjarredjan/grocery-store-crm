@@ -9,15 +9,23 @@ import {
   UserCheck,
   UserX,
   Lock,
+  Edit2,
+  Trash2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { User, UserRole } from '../../types';
 
 export const UserManagement: React.FC = () => {
-  const { users, currentUser, addUser, updateUser } = useApp();
+  const { users, currentUser, addUser, updateUser, deleteUser } = useApp();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editingPinUserId, setEditingPinUserId] = useState<string | null>(null);
   const [newPinValue, setNewPinValue] = useState('');
+  const [editingUserForm, setEditingUserForm] = useState({
+    name: '',
+    email: '',
+    role: 'cashier' as UserRole,
+  });
 
   const isOwner = currentUser.role === 'admin_owner';
   const canManageUsers = isOwner || currentUser.role === 'manager';
@@ -96,6 +104,63 @@ export const UserManagement: React.FC = () => {
     updateUser(userId, { pin: newPinValue });
     setEditingPinUserId(null);
     setNewPinValue('');
+  };
+
+  const handleStartEditUser = (user: User) => {
+    setEditingUserId(user.id);
+    setEditingUserForm({
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    });
+  };
+
+  const handleSaveUserEdit = (userId: string) => {
+    if (!canManageUsers) {
+      alert('You do not have permission to edit employee accounts.');
+      return;
+    }
+
+    if (!requestAdminOverride('edit a user account')) {
+      alert('Admin/Owner PIN verification failed. Editing requires Admin/Owner approval.');
+      return;
+    }
+
+    if (!editingUserForm.name.trim() || !editingUserForm.email.trim()) {
+      alert('Name and email are required.');
+      return;
+    }
+
+    updateUser(userId, {
+      name: editingUserForm.name.trim(),
+      email: editingUserForm.email.trim(),
+      role: editingUserForm.role,
+    });
+
+    setEditingUserId(null);
+    setEditingUserForm({ name: '', email: '', role: 'cashier' });
+  };
+
+  const handleDeleteUser = (user: User) => {
+    if (!canManageUsers) {
+      alert('You do not have permission to delete employee accounts.');
+      return;
+    }
+
+    if (user.id === currentUser.id) {
+      alert('You cannot delete the currently active session user.');
+      return;
+    }
+
+    if (!requestAdminOverride('delete a user account')) {
+      alert('Admin/Owner PIN verification failed. Deletion requires Admin/Owner approval.');
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete ${user.name} from the system? This action cannot be undone.`);
+    if (!confirmed) return;
+
+    deleteUser(user.id);
   };
 
   const getRoleBadge = (role: UserRole) => {
@@ -253,6 +318,22 @@ export const UserManagement: React.FC = () => {
 
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => handleStartEditUser(u)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        Edit
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteUser(u)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-[10px] font-bold text-red-700 hover:bg-red-100"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        Delete
+                      </button>
+
                       <select
                         value={u.role}
                         onChange={(e) => {
@@ -346,6 +427,67 @@ export const UserManagement: React.FC = () => {
           </table>
         </div>
       </div>
+
+      {editingUserId && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-slate-200">
+            <h3 className="font-extrabold text-base text-slate-900 mb-4">Edit Employee Account</h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={editingUserForm.name}
+                  onChange={(e) => setEditingUserForm({ ...editingUserForm, name: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Email Address</label>
+                <input
+                  type="email"
+                  value={editingUserForm.email}
+                  onChange={(e) => setEditingUserForm({ ...editingUserForm, email: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Assigned Role</label>
+                <select
+                  value={editingUserForm.role}
+                  onChange={(e) => setEditingUserForm({ ...editingUserForm, role: e.target.value as UserRole })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                >
+                  <option value="admin_owner">Admin / Owner</option>
+                  <option value="manager">Manager</option>
+                  <option value="cashier">Cashier / Front Register</option>
+                  <option value="purchasing">Purchasing / Reorder Specialist</option>
+                  <option value="inventory">Inventory / Stock Supervisor</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingUserId(null)}
+                  className="flex-1 py-2 text-slate-600 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveUserEdit(editingUserId)}
+                  className="flex-1 py-2 text-white bg-emerald-600 hover:bg-emerald-700 font-bold rounded-xl shadow-xs"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Employee Modal */}
       {isAddModalOpen && (

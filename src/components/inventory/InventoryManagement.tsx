@@ -43,12 +43,27 @@ export const InventoryManagement: React.FC = () => {
   const [adjustReason, setAdjustReason] = useState<InventoryLog['reason']>('restock');
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [isAuditLogsOpen, setIsAuditLogsOpen] = useState(false);
   const [barcodeLabelProduct, setBarcodeLabelProduct] = useState<Product | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
   // New Product Form State
   const [newProductForm, setNewProductForm] = useState({
+    name: '',
+    barcode: '',
+    plu: '',
+    category: 'Produce & Fruits' as GroceryCategory,
+    unit: 'pcs' as ProductUnit,
+    costPrice: '',
+    sellingPrice: '',
+    stockQuantity: '',
+    minStockThreshold: '10',
+    isWeighted: false,
+    supplier: '',
+  });
+
+  const [editingProductForm, setEditingProductForm] = useState({
     name: '',
     barcode: '',
     plu: '',
@@ -150,6 +165,64 @@ export const InventoryManagement: React.FC = () => {
       isWeighted: false,
       supplier: '',
     });
+  };
+
+  const startEditProduct = (product: Product) => {
+    setEditingProductId(product.id);
+    setEditingProductForm({
+      name: product.name,
+      barcode: product.barcode,
+      plu: product.plu || '',
+      category: product.category,
+      unit: product.unit,
+      costPrice: String(product.costPrice),
+      sellingPrice: String(product.sellingPrice),
+      stockQuantity: String(product.stockQuantity),
+      minStockThreshold: String(product.minStockThreshold),
+      isWeighted: product.isWeighted,
+      supplier: product.supplier || '',
+    });
+  };
+
+  const handleSaveProductEdit = () => {
+    if (!editingProductId) return;
+    if (!requestAdminOverride('edit a product record')) {
+      alert('Admin/Owner PIN verification failed. Product edits require approval.');
+      return;
+    }
+
+    if (!editingProductForm.name || !editingProductForm.barcode) {
+      alert('Product name and barcode are required.');
+      return;
+    }
+
+    updateProduct(editingProductId, {
+      name: editingProductForm.name,
+      barcode: editingProductForm.barcode,
+      plu: editingProductForm.plu || undefined,
+      category: editingProductForm.category,
+      unit: editingProductForm.unit,
+      costPrice: parseFloat(editingProductForm.costPrice) || 0,
+      sellingPrice: parseFloat(editingProductForm.sellingPrice) || 0,
+      stockQuantity: parseFloat(editingProductForm.stockQuantity) || 0,
+      minStockThreshold: parseFloat(editingProductForm.minStockThreshold) || 10,
+      isWeighted: editingProductForm.isWeighted,
+      supplier: editingProductForm.supplier || undefined,
+    });
+
+    setEditingProductId(null);
+  };
+
+  const handleDeleteProduct = (product: Product) => {
+    if (!requestAdminOverride('delete a product record')) {
+      alert('Admin/Owner PIN verification failed. Product deletion requires approval.');
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete ${product.name} from inventory?`);
+    if (!confirmed) return;
+
+    deleteProduct(product.id);
   };
 
   const handleSyncSupabase = async () => {
@@ -336,7 +409,22 @@ export const InventoryManagement: React.FC = () => {
 
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        {/* Shelf Barcode Label View */}
+                        <button
+                          onClick={() => startEditProduct(p)}
+                          className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+                          title="Edit product"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteProduct(p)}
+                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete product"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+
                         <button
                           onClick={() => setBarcodeLabelProduct(p)}
                           className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
@@ -345,7 +433,6 @@ export const InventoryManagement: React.FC = () => {
                           <Barcode className="w-4 h-4" />
                         </button>
 
-                        {/* Adjust Stock Button */}
                         {hasRole(['admin_owner', 'manager', 'inventory']) && (
                           <button
                             onClick={() => handleOpenAdjust(p)}
@@ -481,6 +568,166 @@ export const InventoryManagement: React.FC = () => {
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print Tag</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingProductId && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 border border-slate-200 max-h-[90vh] overflow-y-auto">
+            <h3 className="font-extrabold text-lg text-slate-900 mb-4">Edit Product</h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Product Name *</label>
+                <input
+                  type="text"
+                  value={editingProductForm.name}
+                  onChange={(e) => setEditingProductForm({ ...editingProductForm, name: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Barcode *</label>
+                  <input
+                    type="text"
+                    value={editingProductForm.barcode}
+                    onChange={(e) => setEditingProductForm({ ...editingProductForm, barcode: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">PLU</label>
+                  <input
+                    type="text"
+                    value={editingProductForm.plu}
+                    onChange={(e) => setEditingProductForm({ ...editingProductForm, plu: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Department</label>
+                  <select
+                    value={editingProductForm.category}
+                    onChange={(e) => setEditingProductForm({ ...editingProductForm, category: e.target.value as GroceryCategory })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  >
+                    <option value="Produce & Fruits">Produce & Fruits</option>
+                    <option value="Dairy & Eggs">Dairy & Eggs</option>
+                    <option value="Bakery & Deli">Bakery & Deli</option>
+                    <option value="Meat & Poultry">Meat & Poultry</option>
+                    <option value="Beverages">Beverages</option>
+                    <option value="Pantry & Grains">Pantry & Grains</option>
+                    <option value="Snacks & Sweets">Snacks & Sweets</option>
+                    <option value="Household & Care">Household & Care</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Unit</label>
+                  <select
+                    value={editingProductForm.unit}
+                    onChange={(e) => setEditingProductForm({ ...editingProductForm, unit: e.target.value as ProductUnit })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                  >
+                    <option value="pcs">Pieces</option>
+                    <option value="kg">Kilograms</option>
+                    <option value="pack">Pack</option>
+                    <option value="bottle">Bottle</option>
+                    <option value="box">Box</option>
+                    <option value="bag">Bag</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Cost Price</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editingProductForm.costPrice}
+                    onChange={(e) => setEditingProductForm({ ...editingProductForm, costPrice: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Retail Price</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editingProductForm.sellingPrice}
+                    onChange={(e) => setEditingProductForm({ ...editingProductForm, sellingPrice: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Stock</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editingProductForm.stockQuantity}
+                    onChange={(e) => setEditingProductForm({ ...editingProductForm, stockQuantity: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Min Stock</label>
+                  <input
+                    type="number"
+                    step="1"
+                    value={editingProductForm.minStockThreshold}
+                    onChange={(e) => setEditingProductForm({ ...editingProductForm, minStockThreshold: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Supplier</label>
+                <input
+                  type="text"
+                  value={editingProductForm.supplier}
+                  onChange={(e) => setEditingProductForm({ ...editingProductForm, supplier: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingProductForm.isWeighted}
+                    onChange={(e) => setEditingProductForm({ ...editingProductForm, isWeighted: e.target.checked })}
+                    className="rounded text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span className="font-semibold text-slate-700">Sold by Weight</span>
+                </label>
+              </div>
+
+              <div className="flex gap-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingProductId(null)}
+                  className="flex-1 py-2 text-slate-600 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveProductEdit}
+                  className="flex-1 py-2 text-white bg-emerald-600 hover:bg-emerald-700 font-bold rounded-xl shadow-xs"
+                >
+                  Save Changes
+                </button>
+              </div>
             </div>
           </div>
         </div>
