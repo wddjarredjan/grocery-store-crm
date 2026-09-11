@@ -1,0 +1,6 @@
+{
+  "name": "FreshMart Grocery POS & ERP",
+  "description": "Full-featured grocery Point of Sale and ERP system with real-time Supabase inventory synchronization, barcode scanning, sales analytics, PDF manager reports, RBAC, and low-stock alerts.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
