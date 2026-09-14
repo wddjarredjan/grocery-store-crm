@@ -34,9 +34,16 @@ export const UserManagement: React.FC = () => {
     if (isOwner) return true;
 
     const adminOwner = users.find((user) => user.role === 'admin_owner');
-    const adminPin = window.prompt(`Manager override required. Enter the Admin/Owner PIN to ${action}:`);
+    // If there is no configured Admin/Owner account, allow a Manager to confirm and proceed.
+    if (!adminOwner) {
+      if (currentUser.role === 'manager') {
+        return window.confirm(`No Admin/Owner configured. Proceed to ${action} as Manager?`);
+      }
+      return false;
+    }
 
-    if (!adminOwner || !adminPin) return false;
+    const adminPin = window.prompt(`Manager override required. Enter the Admin/Owner PIN to ${action}:`);
+    if (!adminPin) return false;
     return adminPin.trim() === adminOwner.pin;
   };
 
@@ -213,13 +220,15 @@ export const UserManagement: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Employee Account</span>
-        </button>
+        {canManageUsers && (
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl flex items-center gap-1.5 transition-all shadow-xs"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Employee Account</span>
+          </button>
+        )}
       </div>
 
       {/* Staff Accounts Table */}

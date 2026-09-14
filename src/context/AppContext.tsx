@@ -96,6 +96,7 @@ interface AppContextType {
   authSignIn?: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   authSignUp?: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   authSignOut?: () => Promise<{ success: boolean; error?: string }>;
+  lockApp?: () => void;
 
   // Navigation
   activeTab: 'pos' | 'inventory' | 'analytics' | 'reports' | 'users' | 'settings';
@@ -484,6 +485,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const normalizeUserRole = useCallback((role: UserRole): UserRole => {
     return role === 'inventory_clerk' ? 'inventory' : role;
   }, []);
+
+    // Lock the app (used for logout) - clears session unlock and reloads
+    const lockApp = useCallback(() => {
+      try {
+        sessionStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(currentUser));
+      } catch {}
+      try {
+        sessionStorage.setItem('freshmart_app_unlocked_v1', '0');
+      } catch {}
+      // reload to let MainContent re-evaluate lock state
+      try {
+        window.location.reload();
+      } catch {
+        // ignore
+      }
+    }, [currentUser]);
 
   // Role Checker
   const hasRole = useCallback(
@@ -1021,6 +1038,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     supabaseConfig,
     updateSupabaseConfig,
     syncWithSupabase,
+    // lock / logout
+    lockApp,
     authSignIn: async (email: string, password: string) => {
       const res = await authSignIn(email, password);
       if (!res.success) return { success: false, error: res.error };

@@ -7,6 +7,7 @@ import {
   FileText,
   Users,
   Database,
+  Settings,
   Bell,
   CheckCircle2,
   AlertTriangle,
@@ -32,6 +33,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSupabaseModal, onOpenEmail
     switchUserDirect,
     switchUserByPin,
     hasRole,
+    authSignOut,
+    lockApp,
     alerts,
     unreadAlertsCount,
     markAlertAsRead,
@@ -66,6 +69,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSupabaseModal, onOpenEmail
   const navItems = [
     { id: 'nav-pos', tab: 'pos' as const, label: 'POS Register', icon: ShoppingCart },
     { id: 'nav-inventory', tab: 'inventory' as const, label: 'Inventory', icon: Boxes },
+    { id: 'nav-settings', tab: 'settings' as const, label: 'Settings', icon: Settings },
     ...(hasRole(['admin_owner', 'manager', 'purchasing'])
       ? [{ id: 'nav-analytics', tab: 'analytics' as const, label: 'Analytics', icon: BarChart3 }]
       : []),
@@ -190,28 +194,30 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSupabaseModal, onOpenEmail
               </button>
             )}
 
-            <button
-              id="btn-supabase-status"
-              onClick={onOpenSupabaseModal}
-              title={
-                supabaseConfig.isConnected
-                  ? 'Connected to Supabase Real-Time DB'
-                  : 'Supabase Offline / Standalone Mode (Click to Connect)'
-              }
-              className={`hidden items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold transition-colors sm:inline-flex ${
-                supabaseConfig.isConnected
-                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
-                  : 'border-slate-700 bg-slate-900/70 text-slate-300 hover:text-white'
-              }`}
-            >
-              <Database className="h-3.5 w-3.5" />
-              <span>{supabaseConfig.isConnected ? 'Live' : 'Config'}</span>
-              <span
-                className={`h-2 w-2 rounded-full ${
-                  supabaseConfig.isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+            {hasRole(['admin_owner']) && (
+              <button
+                id="btn-supabase-status"
+                onClick={onOpenSupabaseModal}
+                title={
+                  supabaseConfig.isConnected
+                    ? 'Connected to Supabase Real-Time DB'
+                    : 'Supabase Offline / Standalone Mode (Click to Connect)'
+                }
+                className={`hidden items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold transition-colors sm:inline-flex ${
+                  supabaseConfig.isConnected
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                    : 'border-slate-700 bg-slate-900/70 text-slate-300 hover:text-white'
                 }`}
-              />
-            </button>
+              >
+                <Database className="h-3.5 w-3.5" />
+                <span>{supabaseConfig.isConnected ? 'Live' : 'Config'}</span>
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    supabaseConfig.isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                  }`}
+                />
+              </button>
+            )}
 
             <div className="relative">
               <button
@@ -359,6 +365,20 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSupabaseModal, onOpenEmail
                       <KeyRound className="h-3.5 w-3.5" />
                       <span>Switch via 4-Digit PIN</span>
                     </button>
+                    <button
+                      onClick={() => {
+                        // attempt Supabase sign out if available, then lock the app
+                        if (authSignOut) {
+                          authSignOut().catch(() => {});
+                        }
+                        if (lockApp) lockApp();
+                        setShowUserMenu(false);
+                      }}
+                      className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium text-red-600 border border-red-100 bg-red-50 transition-colors hover:bg-red-100"
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                      <span>Log Out</span>
+                    </button>
                   </div>
                 </div>
               )}
@@ -404,13 +424,15 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSupabaseModal, onOpenEmail
             </div>
 
             <div className="mt-3 flex items-center justify-between gap-2">
-              <button
-                onClick={onOpenSupabaseModal}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-200"
-              >
-                <Database className="h-3.5 w-3.5" />
-                {supabaseConfig.isConnected ? 'Live DB' : 'Setup DB'}
-              </button>
+              {hasRole(['admin_owner']) && (
+                <button
+                  onClick={onOpenSupabaseModal}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900/70 px-3 py-2 text-xs font-semibold text-slate-200"
+                >
+                  <Database className="h-3.5 w-3.5" />
+                  {supabaseConfig.isConnected ? 'Live DB' : 'Setup DB'}
+                </button>
+              )}
               {hasRole(['admin_owner', 'manager']) && (
                 <button
                   onClick={onOpenEmailModal}

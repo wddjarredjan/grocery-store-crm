@@ -9,6 +9,7 @@ import {
   RefreshCw,
   ExternalLink,
   Code,
+  Lock,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { generateSupabaseSqlMigration } from '../../services/supabase';
@@ -31,6 +32,17 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
   const [copiedSql, setCopiedSql] = useState(false);
   const [showSql, setShowSql] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // App Lock password state
+  const [appLockPw, setAppLockPw] = useState(() => {
+    try {
+      return localStorage.getItem('freshmart_app_lock_password_v1') || '0000';
+    } catch {
+      return '0000';
+    }
+  });
+  const [newAppLockPw, setNewAppLockPw] = useState('');
+  const [confirmAppLockPw, setConfirmAppLockPw] = useState('');
+  const [pwSaved, setPwSaved] = useState(false);
 
   if (!isOpen) return null;
 
@@ -222,6 +234,8 @@ export const SupabaseConfigModal: React.FC<SupabaseConfigModalProps> = ({
               </pre>
             )}
           </div>
+
+          
         </div>
 
         {/* Footer */}

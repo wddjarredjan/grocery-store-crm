@@ -7,6 +7,7 @@ import { AnalyticsDashboard } from './components/analytics/AnalyticsDashboard';
 import { ReportsManager } from './components/reports/ReportsManager';
 import { UserManagement } from './components/users/UserManagement';
 import { SupabaseConfigModal } from './components/settings/SupabaseConfigModal';
+import SettingsPage from './components/settings/SettingsPage';
 import { WeeklyEmailModal } from './components/reports/WeeklyEmailModal';
 import { ShieldAlert, KeyRound, ShoppingBag } from 'lucide-react';
 
@@ -16,7 +17,20 @@ const MainContent: React.FC = () => {
   const [isEmailOpen, setIsEmailOpen] = useState(false);
   const [managerPinInput, setManagerPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
-  const [isLoginOpen, setIsLoginOpen] = useState(true);
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [isAppLocked, setIsAppLocked] = useState(() => {
+    try {
+      const unlocked = sessionStorage.getItem('freshmart_app_unlocked_v1');
+      return unlocked !== '1';
+    } catch {
+      return true;
+    }
+  });
+  const [appLockInput, setAppLockInput] = useState('');
+  const [appLockError, setAppLockError] = useState(false);
+  const [isEmployeePinOpen, setIsEmployeePinOpen] = useState(false);
+  const [employeePinInput, setEmployeePinInput] = useState('');
+  const [employeePinError, setEmployeePinError] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string>(users[0]?.id || '');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -39,6 +53,46 @@ const MainContent: React.FC = () => {
       setManagerPinInput('');
     } else {
       setPinError(true);
+    }
+  };
+
+  const getStoredAppLock = () => {
+    try {
+      const pw = localStorage.getItem('freshmart_app_lock_password_v1');
+      return pw ?? '0000';
+    } catch {
+      return '0000';
+    }
+  };
+
+  const handleAppUnlock = (e: React.FormEvent) => {
+    e.preventDefault();
+    const stored = getStoredAppLock();
+    if (appLockInput === stored) {
+      try {
+        sessionStorage.setItem('freshmart_app_unlocked_v1', '1');
+      } catch {}
+      // unlock the UI, then immediately require an employee PIN to select the active user
+      setIsAppLocked(false);
+      setIsEmployeePinOpen(true);
+      setAppLockError(false);
+      setAppLockInput('');
+    } else {
+      setAppLockError(true);
+      setAppLockInput('');
+    }
+  };
+
+  const handleEmployeePinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const success = switchUserByPin(employeePinInput);
+    if (success) {
+      setEmployeePinError(false);
+      setEmployeePinInput('');
+      setIsEmployeePinOpen(false);
+    } else {
+      setEmployeePinError(true);
+      setEmployeePinInput('');
     }
   };
 
@@ -138,6 +192,96 @@ const MainContent: React.FC = () => {
 
   return (
     <div className="app-shell min-h-screen bg-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
+      {isAppLocked && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-2xl">
+            <div className="bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 p-6 text-white">
+              <h1 className="text-2xl font-black tracking-tight">App Lock</h1>
+              <p className="mt-2 text-sm text-emerald-50/90">Enter the app unlock password to continue.</p>
+            </div>
+
+            <div className="p-6">
+              <form onSubmit={handleAppUnlock} className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Password</label>
+                  <input
+                    type="password"
+                    value={appLockInput}
+                    onChange={(e) => setAppLockInput(e.target.value)}
+                    placeholder="0000"
+                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-center font-mono text-lg"
+                  />
+                  {appLockError && (
+                    <p className="mt-2 text-xs text-red-600">Incorrect password. Try again.</p>
+                  )}
+                </div>
+
+                <div className="flex gap-2 pt-3">
+                  <button
+                    type="submit"
+                    className="flex-1 py-2 text-white bg-emerald-600 hover:bg-emerald-700 font-bold rounded-xl shadow-xs"
+                  >
+                    Unlock
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isEmployeePinOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-2xl">
+            <div className="bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 p-6 text-white">
+              <h1 className="text-2xl font-black tracking-tight">Enter your Employee PIN</h1>
+              <p className="mt-2 text-sm text-emerald-50/90">Please enter your 4-digit employee PIN to continue.</p>
+            </div>
+
+            <div className="p-6">
+              <form onSubmit={handleEmployeePinSubmit} className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">Employee PIN</label>
+                  <input
+                    type="password"
+                    value={employeePinInput}
+                    onChange={(e) => setEmployeePinInput(e.target.value)}
+                    placeholder="1234"
+                    className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-center font-mono text-lg"
+                  />
+                  {employeePinError && (
+                    <p className="mt-2 text-xs text-red-600">Invalid PIN. Try again.</p>
+                  )}
+                </div>
+
+                <div className="flex gap-2 pt-3">
+                  <button
+                    type="submit"
+                    className="flex-1 py-2 text-white bg-emerald-600 hover:bg-emerald-700 font-bold rounded-xl shadow-xs"
+                  >
+                    Enter
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // If user cancels selecting employee, lock app again
+                      try {
+                        sessionStorage.setItem('freshmart_app_unlocked_v1', '0');
+                      } catch {}
+                      setIsEmployeePinOpen(false);
+                      setIsAppLocked(true);
+                    }}
+                    className="flex-1 py-2 text-slate-700 bg-slate-100 hover:bg-slate-200 font-bold rounded-xl shadow-xs"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isLoginOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
           <div className="w-full max-w-2xl overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl">
@@ -403,6 +547,7 @@ const MainContent: React.FC = () => {
             {activeTab === 'analytics' && <AnalyticsDashboard />}
             {activeTab === 'reports' && <ReportsManager />}
             {activeTab === 'users' && <UserManagement />}
+            {activeTab === 'settings' && <SettingsPage />}
           </>
         )}
       </main>
