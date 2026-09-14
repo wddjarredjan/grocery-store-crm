@@ -234,6 +234,79 @@ export async function deleteSupabaseUser(id: string): Promise<{ success: boolean
   }
 }
 
+// Auth helpers
+export async function authSignUp(email: string, password: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase client not configured' };
+  try {
+    const res = await client.auth.signUp({ email, password });
+    if (res.error) throw res.error;
+    return { success: true, data: res.data };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: errorMsg };
+  }
+}
+
+export async function authSignIn(email: string, password: string): Promise<{ success: boolean; data?: any; error?: string }> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase client not configured' };
+  try {
+    const res = await client.auth.signInWithPassword({ email, password });
+    if (res.error) throw res.error;
+    return { success: true, data: res.data };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: errorMsg };
+  }
+}
+
+export async function authSignOut(): Promise<{ success: boolean; error?: string }> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase client not configured' };
+  try {
+    const { error } = await client.auth.signOut();
+    if (error) throw error;
+    return { success: true };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: errorMsg };
+  }
+}
+
+export function onAuthStateChange(handler: (event: string, session: any) => void) {
+  const client = getSupabaseClient();
+  if (!client) return () => {};
+  const { data } = client.auth.onAuthStateChange((event, session) => {
+    try {
+      handler(event, session);
+    } catch (e) {
+      console.warn('Auth state handler error', e);
+    }
+  });
+  return () => {
+    // unsubscribe
+    try {
+      data.subscription.unsubscribe();
+    } catch (e) {
+      // ignore
+    }
+  };
+}
+
+export async function fetchSupabaseUserByEmail(email: string): Promise<{ success: boolean; user?: any; error?: string }> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase client not configured' };
+  try {
+    const { data, error } = await client.from('app_users').select('*').eq('email', email).limit(1).maybeSingle();
+    if (error) throw error;
+    return { success: true, user: data };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: errorMsg };
+  }
+}
+
 export function generateSupabaseSqlMigration(): string {
   return `-- ============================================================
 -- FreshMart Grocery POS & ERP - Supabase Database Schema

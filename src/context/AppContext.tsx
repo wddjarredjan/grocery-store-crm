@@ -24,6 +24,11 @@ import {
   fetchSupabaseUsers,
   upsertSupabaseUser,
   deleteSupabaseUser,
+  authSignIn,
+  authSignUp,
+  authSignOut,
+  onAuthStateChange,
+  fetchSupabaseUserByEmail,
 } from '../services/supabase';
 
 interface AppContextType {
@@ -87,6 +92,10 @@ interface AppContextType {
   supabaseConfig: SupabaseConfig;
   updateSupabaseConfig: (url: string, anonKey: string) => Promise<{ success: boolean; message: string }>;
   syncWithSupabase: () => Promise<{ success: boolean; count?: number; error?: string }>;
+  // Auth
+  authSignIn?: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  authSignUp?: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  authSignOut?: () => Promise<{ success: boolean; error?: string }>;
 
   // Navigation
   activeTab: 'pos' | 'inventory' | 'analytics' | 'reports' | 'users' | 'settings';
@@ -336,16 +345,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const { data, error } = await client.from('app_users').select('*');
         if (!mounted) return;
         if (!error && data) {
-          // Map database fields to local User shape
-          const mapped = data.map((u: any) => ({
-            id: u.id,
-            name: u.name,
-            email: u.email,
-            role: u.role,
-            pin: u.pin,
-            isActive: u.is_active ?? true,
-            createdAt: u.created_at,
-          }));
+          // Map database fields to local User shape and preserve any existing local PINs
+          const mapped = data.map((u: any) => {
+            const existing = users.find((p) => p.id === u.id);
+            const pin = u.pin || (existing ? existing.pin : '');
+            return {
+              id: u.id,
+              name: u.name,
+              email: u.email,
+              role: u.role,
+              pin,
+              isActive: u.is_active ?? true,
+              createdAt: u.created_at,
+            };
+          });
           setUsers(mapped);
         }
 
@@ -357,12 +370,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             (payload) => {
               const row = payload.new ?? payload.old;
               if (!row) return;
+              const existing = users.find((p) => p.id === row.id);
               const mappedUser = {
                 id: row.id,
                 name: row.name,
                 email: row.email,
                 role: row.role,
-                pin: row.pin,
+                pin: row.pin || (existing ? existing.pin : ''),
                 isActive: row.is_active ?? true,
                 createdAt: row.created_at,
               };
@@ -391,6 +405,82 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [supabaseConfig.isConnected]);
 
+  // Supabase Auth — listen for auth state and map Auth users to app_users
+  useEffect(() => {
+    if (!supabaseConfig.isConnected) return;
+    let unsub: (() => void) | null = null;
+
+    const handleAuth = async (event: string, session: any) => {
+      try {
+        if (session && session.user) {
+          const authUser = session.user;
+          const email = authUser.email;
+          if (!email) return;
+          // Try to find matching app_user by email
+          const remote = await fetchSupabaseUserByEmail(email);
+          if (remote.success && remote.user) {
+            const row = remote.user;
+            const existing = users.find((p) => p.id === row.id);
+            const mapped = {
+              id: row.id,
+              name: row.name || email,
+              email: row.email,
+              role: row.role || 'cashier',
+              pin: row.pin || (existing ? existing.pin : ''),
+              isActive: row.is_active ?? true,
+              createdAt: row.created_at,
+            } as User;
+            setCurrentUser(mapped);
+            // ensure local users list contains it
+            setUsers((prev) => {
+              const exists = prev.some((u) => u.id === mapped.id);
+              if (exists) return prev.map((u) => (u.id === mapped.id ? mapped : u));
+              return [mapped, ...prev];
+            });
+          } else {
+            // create a new app_user tied to the auth user's id
+            const newUser: User = {
+              id: authUser.id,
+              name: authUser.user_metadata?.full_name || email,
+              email,
+              role: 'cashier',
+              pin: '',
+              isActive: true,
+            };
+            setUsers((prev) => [newUser, ...prev]);
+            setCurrentUser(newUser);
+            // persist to Supabase app_users table
+            upsertSupabaseUser(newUser).catch((e) => console.warn('Could not upsert app_user for auth user', e));
+          }
+        } else {
+          // signed out; do not forcibly clear currentUser to avoid logging out other local sessions
+        }
+      } catch (err) {
+        console.warn('Auth handling error', err);
+      }
+    };
+
+    unsub = onAuthStateChange(handleAuth);
+
+    // Check initial session
+    (async () => {
+      const client = getSupabaseClient();
+      if (!client) return;
+      try {
+        const { data } = await client.auth.getSession();
+        if (data?.session) {
+          await handleAuth('INIT', data.session);
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [supabaseConfig.isConnected, users]);
+
   const normalizeUserRole = useCallback((role: UserRole): UserRole => {
     return role === 'inventory_clerk' ? 'inventory' : role;
   }, []);
@@ -407,7 +497,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Switch User by PIN
   const switchUserByPin = useCallback(
     (pin: string): boolean => {
-      const matchedUser = users.find((u) => u.pin === pin.trim() && u.isActive);
+      // Allow concurrent logins across devices: match PIN regardless of `isActive` flag.
+      // `isActive` is treated as account enabled/disabled by admins, not session state.
+      const trimmed = pin.trim();
+      const matchedUser = users.find((u) => u.pin === trimmed);
       if (matchedUser) {
         setCurrentUser(matchedUser);
         playSuccessChime();
@@ -928,6 +1021,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     supabaseConfig,
     updateSupabaseConfig,
     syncWithSupabase,
+    authSignIn: async (email: string, password: string) => {
+      const res = await authSignIn(email, password);
+      if (!res.success) return { success: false, error: res.error };
+      return { success: true };
+    },
+    authSignUp: async (email: string, password: string) => {
+      const res = await authSignUp(email, password);
+      if (!res.success) return { success: false, error: res.error };
+      return { success: true };
+    },
+    authSignOut: async () => {
+      const res = await authSignOut();
+      if (!res.success) return { success: false, error: res.error };
+      return { success: true };
+    },
 
     activeTab,
     setActiveTab,
