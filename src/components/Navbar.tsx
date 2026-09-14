@@ -339,26 +339,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSupabaseModal, onOpenEmail
                     Quick Switch Account
                   </div>
                   <div className="max-h-48 overflow-y-auto">
-                    {users.map((u) => (
-                      <button
-                        key={u.id}
-                        onClick={() => {
-                          switchUserDirect(u);
-                          setShowUserMenu(false);
-                        }}
-                        className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition-colors hover:bg-slate-50 ${
-                          u.id === currentUser.id ? 'bg-slate-100 font-bold' : ''
-                        }`}
-                      >
-                        <div>
-                          <div className="text-slate-900">{u.name}</div>
-                          <div className="text-[10px] capitalize text-slate-500">{u.role.replace('_', ' ')}</div>
-                        </div>
-                        {u.id === currentUser.id && (
-                          <span className="text-[11px] font-semibold text-emerald-600">Active</span>
-                        )}
-                      </button>
-                    ))}
+                    <div className="flex w-full items-center justify-between px-3 py-2 text-left text-xs">
+                      <div>
+                        <div className="text-slate-900">{currentUser.name}</div>
+                        <div className="text-[10px] capitalize text-slate-500">{currentUser.role.replace('_', ' ')}</div>
+                      </div>
+                      <span className="text-[11px] font-semibold text-emerald-600">Active</span>
+                    </div>
                   </div>
 
                   <div className="mt-2 border-t border-slate-100 p-2">

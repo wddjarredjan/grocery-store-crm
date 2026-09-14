@@ -185,6 +185,55 @@ export async function recordSaleInSupabase(sale: Sale): Promise<{ success: boole
   }
 }
 
+// Users (app_users) helpers
+export async function fetchSupabaseUsers(): Promise<{ success: boolean; users?: any[]; error?: string }> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase client not configured' };
+  try {
+    const { data, error } = await client.from('app_users').select('*');
+    if (error) throw error;
+    return { success: true, users: data ?? [] };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: errorMsg };
+  }
+}
+
+export async function upsertSupabaseUser(user: any): Promise<{ success: boolean; error?: string }> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase client not configured' };
+  try {
+    const payload = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      pin: user.pin,
+      is_active: user.isActive ?? true,
+      created_at: user.createdAt || new Date().toISOString(),
+    };
+    const { error } = await client.from('app_users').upsert(payload, { onConflict: 'id' });
+    if (error) throw error;
+    return { success: true };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: errorMsg };
+  }
+}
+
+export async function deleteSupabaseUser(id: string): Promise<{ success: boolean; error?: string }> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase client not configured' };
+  try {
+    const { error } = await client.from('app_users').delete().eq('id', id);
+    if (error) throw error;
+    return { success: true };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    return { success: false, error: errorMsg };
+  }
+}
+
 export function generateSupabaseSqlMigration(): string {
   return `-- ============================================================
 -- FreshMart Grocery POS & ERP - Supabase Database Schema

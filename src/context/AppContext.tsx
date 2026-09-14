@@ -21,6 +21,9 @@ import {
   syncLocalProductsToSupabase,
   recordSaleInSupabase,
   testSupabaseConnection,
+  fetchSupabaseUsers,
+  upsertSupabaseUser,
+  deleteSupabaseUser,
 } from '../services/supabase';
 
 interface AppContextType {
@@ -321,6 +324,73 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [supabaseConfig.isConnected]);
 
+  // Sync users with Supabase when connected and subscribe to realtime changes
+  useEffect(() => {
+    const client = getSupabaseClient();
+    let channel: any = null;
+    let mounted = true;
+    if (!client || !supabaseConfig.isConnected) return;
+
+    (async () => {
+      try {
+        const { data, error } = await client.from('app_users').select('*');
+        if (!mounted) return;
+        if (!error && data) {
+          // Map database fields to local User shape
+          const mapped = data.map((u: any) => ({
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            role: u.role,
+            pin: u.pin,
+            isActive: u.is_active ?? true,
+            createdAt: u.created_at,
+          }));
+          setUsers(mapped);
+        }
+
+        channel = client
+          .channel('realtime_app_users')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'app_users' },
+            (payload) => {
+              const row = payload.new ?? payload.old;
+              if (!row) return;
+              const mappedUser = {
+                id: row.id,
+                name: row.name,
+                email: row.email,
+                role: row.role,
+                pin: row.pin,
+                isActive: row.is_active ?? true,
+                createdAt: row.created_at,
+              };
+
+              setUsers((prev) => {
+                if (payload.eventType === 'DELETE') {
+                  return prev.filter((u) => u.id !== row.id);
+                }
+                const exists = prev.some((u) => u.id === row.id);
+                if (exists) {
+                  return prev.map((u) => (u.id === row.id ? { ...u, ...mappedUser } : u));
+                }
+                return [mappedUser, ...prev];
+              });
+            }
+          )
+          .subscribe();
+      } catch (err) {
+        console.warn('Could not sync users from Supabase:', err);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+      if (client && channel) client.removeChannel(channel);
+    };
+  }, [supabaseConfig.isConnected]);
+
   const normalizeUserRole = useCallback((role: UserRole): UserRole => {
     return role === 'inventory_clerk' ? 'inventory' : role;
   }, []);
@@ -359,11 +429,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `usr_${Date.now()}`,
     };
     setUsers((prev) => [...prev, user]);
+    if (supabaseConfig.isConnected) {
+      upsertSupabaseUser(user).catch((err) => console.warn('Could not upsert user to Supabase:', err));
+    }
   }, []);
 
   const updateUser = useCallback((id: string, updates: Partial<User>) => {
     setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...updates } : u)));
     setCurrentUser((prev) => (prev.id === id ? { ...prev, ...updates } : prev));
+    if (supabaseConfig.isConnected) {
+      const existing = users.find((u) => u.id === id) ?? { id };
+      const merged = { ...existing, ...updates };
+      upsertSupabaseUser(merged).catch((err) => console.warn('Could not update user on Supabase:', err));
+    }
   }, []);
 
   const deleteUser = useCallback((id: string) => {
@@ -374,6 +452,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return remaining;
     });
+    if (supabaseConfig.isConnected) {
+      deleteSupabaseUser(id).catch((err) => console.warn('Could not delete user from Supabase:', err));
+    }
   }, [currentUser.id]);
 
   // Web Notification Trigger
