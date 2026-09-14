@@ -29,9 +29,7 @@ import {
   authSignOut,
   onAuthStateChange,
   fetchSupabaseUserByEmail,
-  recordSystemHistory,
 } from '../services/supabase';
-import { SystemHistoryEntry } from '../types';
 
 interface AppContextType {
   // Authentication & RBAC
@@ -58,10 +56,6 @@ interface AppContextType {
   markAlertAsRead: (id: string) => void;
   clearAllAlerts: () => void;
   requestNotificationPermission: () => Promise<boolean>;
-
-  // System History
-  history: SystemHistoryEntry[];
-  recordHistory: (action: string, entity?: string, entityId?: string, details?: any) => void;
 
   // POS Cart & Register
   cart: CartItem[];
@@ -103,10 +97,6 @@ interface AppContextType {
   authSignUp?: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   authSignOut?: () => Promise<{ success: boolean; error?: string }>;
   lockApp?: () => void;
-  // Temporary UI lock
-  isTemporarilyLocked?: boolean;
-  tempLock?: () => void;
-  unlockTemp?: () => void;
 
   // Navigation
   activeTab: 'pos' | 'inventory' | 'analytics' | 'reports' | 'users' | 'settings';
@@ -226,16 +216,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  // System history
-  const [history, setHistory] = useState<SystemHistoryEntry[]>(() => {
-    try {
-      const raw = localStorage.getItem('freshmart_system_history_v1');
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
-
   // Supabase Config
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
     const loaded = loadStoredSupabaseConfig();
@@ -248,7 +228,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'analytics' | 'reports' | 'users' | 'settings'>('pos');
-  const [isTemporarilyLocked, setIsTemporarilyLocked] = useState(false);
 
   // Persistence effects
   useEffect(() => {
@@ -298,14 +277,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error(e);
     }
   }, [alerts]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('freshmart_system_history_v1', JSON.stringify(history));
-    } catch (e) {
-      console.error('Could not persist history locally', e);
-    }
-  }, [history]);
 
   useEffect(() => {
     try {
@@ -427,8 +398,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setProducts((prev) =>
               prev.map((p) => (p.id === newLog.productId ? { ...p, stockQuantity: newLog.newStock, updatedAt: new Date().toISOString() } : p))
             );
-            // record inventory log in history
-            recordHistory('inventory_log_created', 'inventory_log', newLog.id, newLog);
           }
         )
         .subscribe();
@@ -609,58 +578,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }, [currentUser]);
 
-    const tempLock = useCallback(() => {
-      // Temporarily lock UI but preserve in-memory unsaved changes
-      try {
-        sessionStorage.setItem('freshmart_temp_locked_v1', '1');
-      } catch {}
-      setIsTemporarilyLocked(true);
-    }, []);
-
-    const unlockTemp = useCallback(() => {
-      try {
-        sessionStorage.removeItem('freshmart_temp_locked_v1');
-      } catch {}
-      setIsTemporarilyLocked(false);
-    }, []);
-
-    const recordHistory = useCallback(
-      (action: string, entity?: string, entityId?: string, details?: any) => {
-        const entry: SystemHistoryEntry = {
-          id: `hist_${Date.now()}`,
-          actorId: currentUser?.id,
-          actorName: currentUser?.name,
-          action,
-          entity,
-          entityId,
-          details: details && typeof details !== 'string' ? JSON.stringify(details) : details,
-          timestamp: new Date().toISOString(),
-        };
-
-        setHistory((prev) => {
-          const next = [entry, ...prev];
-          try {
-            localStorage.setItem('freshmart_system_history_v1', JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-
-        if (supabaseConfig.isConnected) {
-          recordSystemHistory({
-            id: entry.id,
-            actor_id: entry.actorId,
-            actor_name: entry.actorName,
-            action: entry.action,
-            entity: entry.entity,
-            entity_id: entry.entityId,
-            details: entry.details,
-            created_at: entry.timestamp,
-          }).catch((err) => console.warn('Could not record system history to Supabase:', err));
-        }
-      },
-      [currentUser, supabaseConfig.isConnected]
-    );
-
   // Role Checker
   const hasRole = useCallback(
     (roles: UserRole | UserRole[]) => {
@@ -701,7 +618,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (supabaseConfig.isConnected) {
       upsertSupabaseUser(user).catch((err) => console.warn('Could not upsert user to Supabase:', err));
     }
-    recordHistory('create_user', 'user', user.id, { name: user.name, role: user.role });
   }, []);
 
   const updateUser = useCallback((id: string, updates: Partial<User>) => {
@@ -712,7 +628,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const merged = { ...existing, ...updates };
       upsertSupabaseUser(merged).catch((err) => console.warn('Could not update user on Supabase:', err));
     }
-    recordHistory('update_user', 'user', id, updates);
   }, []);
 
   const deleteUser = useCallback((id: string) => {
@@ -726,7 +641,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (supabaseConfig.isConnected) {
       deleteSupabaseUser(id).catch((err) => console.warn('Could not delete user from Supabase:', err));
     }
-    recordHistory('delete_user', 'user', id, null);
   }, [currentUser.id]);
 
   // Web Notification Trigger
@@ -781,7 +695,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (supabaseConfig.isConnected) {
         syncLocalProductsToSupabase([product]).catch((err) => console.warn('Could not sync new product to Supabase:', err));
       }
-      recordHistory('create_product', 'product', product.id, { name: product.name, stock: product.stockQuantity });
     },
     [currentUser.name, supabaseConfig.isConnected]
   );
@@ -795,7 +708,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const merged = { ...(updated ?? { id }), ...updates } as Product;
       syncLocalProductsToSupabase([merged]).catch((err) => console.warn('Could not sync updated product to Supabase:', err));
     }
-    recordHistory('update_product', 'product', id, updates);
   }, [products, supabaseConfig.isConnected]);
 
   const deleteProduct = useCallback((id: string) => {
@@ -806,7 +718,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         client.from('products').delete().eq('id', id).catch((err) => console.warn('Could not delete product from Supabase:', err));
       }
     }
-    recordHistory('delete_product', 'product', id, null);
   }, [supabaseConfig.isConnected]);
 
   const adjustStock = useCallback(
@@ -1156,9 +1067,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
-      // Record history for the sale
-      recordHistory('create_sale', 'sale', newSale.id, { invoice: newSale.invoiceNumber, total: newSale.totalAmount });
-
       return { success: true, sale: newSale };
     },
     [cart, cartTotals, currentUser, sales.length, supabaseConfig.isConnected, triggerNotification]
@@ -1255,10 +1163,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     syncWithSupabase,
     // lock / logout
     lockApp,
-    // temporary lock
-    isTemporarilyLocked,
-    tempLock,
-    unlockTemp,
     authSignIn: async (email: string, password: string) => {
       const res = await authSignIn(email, password);
       if (!res.success) return { success: false, error: res.error };

@@ -307,38 +307,6 @@ export async function fetchSupabaseUserByEmail(email: string): Promise<{ success
   }
 }
 
-export async function recordSystemHistory(entry: {
-  id: string;
-  actor_id?: string;
-  actor_name?: string;
-  action: string;
-  entity?: string;
-  entity_id?: string;
-  details?: any;
-  created_at?: string;
-}): Promise<{ success: boolean; error?: string }> {
-  const client = getSupabaseClient();
-  if (!client) return { success: false, error: 'Supabase client not configured' };
-  try {
-    const payload = {
-      id: entry.id,
-      actor_id: entry.actor_id || null,
-      actor_name: entry.actor_name || null,
-      action: entry.action,
-      entity: entry.entity || null,
-      entity_id: entry.entity_id || null,
-      details: entry.details ? (typeof entry.details === 'string' ? entry.details : JSON.stringify(entry.details)) : null,
-      created_at: entry.created_at || new Date().toISOString(),
-    };
-    const { error } = await client.from('system_history').insert([payload]);
-    if (error) throw error;
-    return { success: true };
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err);
-    return { success: false, error: errorMsg };
-  }
-}
-
 export function generateSupabaseSqlMigration(): string {
   return `-- ============================================================
 -- FreshMart Grocery POS & ERP - Supabase Database Schema
@@ -425,18 +393,6 @@ CREATE TABLE IF NOT EXISTS public.app_users (
     pin VARCHAR(8) NOT NULL,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 8. System History Log
-CREATE TABLE IF NOT EXISTS public.system_history (
-  id TEXT PRIMARY KEY,
-  actor_id TEXT,
-  actor_name VARCHAR(150),
-  action VARCHAR(100) NOT NULL,
-  entity VARCHAR(100),
-  entity_id TEXT,
-  details JSONB,
-  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 7. Enable Realtime Publications for instant multi-register sync
