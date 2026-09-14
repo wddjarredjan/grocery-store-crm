@@ -94,13 +94,9 @@ export const UserManagement: React.FC = () => {
   };
 
   const handleUpdatePin = (userId: string) => {
-    if (!canManageUsers) {
-      alert('You do not have permission to manage employee PINs.');
-      return;
-    }
-
-    if (!requestAdminOverride('update a PIN')) {
-      alert('Admin/Owner PIN verification failed. Only the Admin/Owner can approve this action.');
+    // Only Admin/Owner may change employee PINs
+    if (!isOwner) {
+      alert('Only the Admin / Owner may change employee PINs.');
       return;
     }
 
@@ -108,6 +104,17 @@ export const UserManagement: React.FC = () => {
       alert('PIN must be 4 digits.');
       return;
     }
+
+    // Require admin confirmation (current owner) before applying change
+    const adminOwner = users.find((user) => user.role === 'admin_owner');
+    if (adminOwner && adminOwner.id !== currentUser.id) {
+      const adminPin = window.prompt(`Enter the Admin/Owner PIN to update this employee PIN:`);
+      if (!adminPin || adminPin.trim() !== adminOwner.pin) {
+        alert('Admin/Owner PIN verification failed. PIN update cancelled.');
+        return;
+      }
+    }
+
     updateUser(userId, { pin: newPinValue });
     setEditingPinUserId(null);
     setNewPinValue('');
@@ -298,7 +305,7 @@ export const UserManagement: React.FC = () => {
                           <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                    ) : (
+                    ) : isOwner ? (
                       <button
                         onClick={() => {
                           setEditingPinUserId(u.id);
@@ -310,6 +317,11 @@ export const UserManagement: React.FC = () => {
                         <KeyRound className="w-3 h-3 text-slate-400" />
                         <span>PIN: {u.pin}</span>
                       </button>
+                    ) : (
+                      <div className="text-slate-500 flex items-center gap-1 mx-auto px-2 py-0.5 rounded text-[11px]">
+                        <KeyRound className="w-3 h-3 text-slate-300" />
+                        <span>PIN: ••••</span>
+                      </div>
                     )}
                   </td>
 

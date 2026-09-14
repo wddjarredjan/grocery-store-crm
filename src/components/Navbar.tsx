@@ -69,7 +69,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSupabaseModal, onOpenEmail
   const navItems = [
     { id: 'nav-pos', tab: 'pos' as const, label: 'POS Register', icon: ShoppingCart },
     { id: 'nav-inventory', tab: 'inventory' as const, label: 'Inventory', icon: Boxes },
-    { id: 'nav-settings', tab: 'settings' as const, label: 'Settings', icon: Settings },
+    ...(hasRole(['admin_owner']) ? [{ id: 'nav-settings', tab: 'settings' as const, label: 'Settings', icon: Settings }] : []),
     ...(hasRole(['admin_owner', 'manager', 'purchasing'])
       ? [{ id: 'nav-analytics', tab: 'analytics' as const, label: 'Analytics', icon: BarChart3 }]
       : []),
