@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Lock } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import SystemHistory from './SystemHistory';
 
 export const SettingsPage: React.FC = () => {
   const { } = useApp();
@@ -132,6 +133,17 @@ export const SettingsPage: React.FC = () => {
           </div>
         </form>
       </div>
+
+      {/* System History - visible to Admin/Owner only */}
+      {/* useApp has hasRole, but we can check current user's role */}
+      <div className="mt-6">
+        {/* Only show system history to admin_owner */}
+        {/* eslint-disable-next-line @typescript-eslint/ban-ts-comment */}
+        {/* @ts-ignore */}
+        {/**/}
+      </div>
+      {/* Render SystemHistory only if admin_owner */}
+      {(useApp().currentUser.role === 'admin_owner') && <SystemHistory />}
     </div>
   );
 };

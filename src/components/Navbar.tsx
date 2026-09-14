@@ -17,6 +17,7 @@ import {
   Menu,
   Volume2,
   X,
+  Lock,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { User, UserRole } from '../types';
@@ -35,6 +36,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSupabaseModal, onOpenEmail
     hasRole,
     authSignOut,
     lockApp,
+    tempLock,
     alerts,
     unreadAlertsCount,
     markAlertAsRead,
@@ -70,6 +72,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSupabaseModal, onOpenEmail
     { id: 'nav-pos', tab: 'pos' as const, label: 'POS Register', icon: ShoppingCart },
     { id: 'nav-inventory', tab: 'inventory' as const, label: 'Inventory', icon: Boxes },
     ...(hasRole(['admin_owner']) ? [{ id: 'nav-settings', tab: 'settings' as const, label: 'Settings', icon: Settings }] : []),
+    { id: 'nav-lock', tab: 'lock' as const, label: 'Lock', icon: Lock },
     ...(hasRole(['admin_owner', 'manager', 'purchasing'])
       ? [{ id: 'nav-analytics', tab: 'analytics' as const, label: 'Analytics', icon: BarChart3 }]
       : []),
@@ -160,6 +163,11 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSupabaseModal, onOpenEmail
                   key={id}
                   id={id}
                   onClick={() => {
+                    // handle temporary lock separately
+                    if (id === 'nav-lock') {
+                      if (tempLock) tempLock();
+                      return;
+                    }
                     setActiveTab(tab);
                     setShowAlertsDropdown(false);
                     setShowUserMenu(false);
@@ -403,6 +411,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenSupabaseModal, onOpenEmail
                   key={id}
                   id={id}
                   onClick={() => {
+                    // mobile menu lock handler
+                    if (id === 'nav-lock') {
+                      if (tempLock) tempLock();
+                      setIsMobileMenuOpen(false);
+                      return;
+                    }
                     setActiveTab(tab);
                     setIsMobileMenuOpen(false);
                     setShowAlertsDropdown(false);

@@ -29,7 +29,9 @@ import {
   authSignOut,
   onAuthStateChange,
   fetchSupabaseUserByEmail,
+  recordSystemHistory,
 } from '../services/supabase';
+import { SystemHistoryEntry } from '../types';
 
 interface AppContextType {
   // Authentication & RBAC
@@ -56,6 +58,10 @@ interface AppContextType {
   markAlertAsRead: (id: string) => void;
   clearAllAlerts: () => void;
   requestNotificationPermission: () => Promise<boolean>;
+
+  // System History
+  history: SystemHistoryEntry[];
+  recordHistory: (action: string, entity?: string, entityId?: string, details?: any) => void;
 
   // POS Cart & Register
   cart: CartItem[];
@@ -97,6 +103,10 @@ interface AppContextType {
   authSignUp?: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   authSignOut?: () => Promise<{ success: boolean; error?: string }>;
   lockApp?: () => void;
+  // Temporary UI lock
+  isTemporarilyLocked?: boolean;
+  tempLock?: () => void;
+  unlockTemp?: () => void;
 
   // Navigation
   activeTab: 'pos' | 'inventory' | 'analytics' | 'reports' | 'users' | 'settings';
@@ -216,6 +226,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
+  // System history
+  const [history, setHistory] = useState<SystemHistoryEntry[]>(() => {
+    try {
+      const raw = localStorage.getItem('freshmart_system_history_v1');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
   // Supabase Config
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(() => {
     const loaded = loadStoredSupabaseConfig();
@@ -228,6 +248,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Navigation tab
   const [activeTab, setActiveTab] = useState<'pos' | 'inventory' | 'analytics' | 'reports' | 'users' | 'settings'>('pos');
+  const [isTemporarilyLocked, setIsTemporarilyLocked] = useState(false);
 
   // Persistence effects
   useEffect(() => {
@@ -277,6 +298,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       console.error(e);
     }
   }, [alerts]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('freshmart_system_history_v1', JSON.stringify(history));
+    } catch (e) {
+      console.error('Could not persist history locally', e);
+    }
+  }, [history]);
 
   useEffect(() => {
     try {
@@ -331,6 +360,84 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     } catch (err) {
       console.warn('Realtime subscription error:', err);
+    }
+  }, [supabaseConfig.isConnected]);
+
+  // Subscribe to sales and inventory_logs so remote changes are reflected locally
+  useEffect(() => {
+    const client = getSupabaseClient();
+    if (!client || !supabaseConfig.isConnected) return;
+
+    let channel: any = null;
+    try {
+      channel = client
+        .channel('realtime_sales_inventory')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'sales' },
+          (payload) => {
+            const row = payload.new;
+            if (!row) return;
+            setSales((prev) => {
+              const exists = prev.some((s) => s.id === row.id);
+              if (exists) return prev;
+              const mapped = {
+                id: row.id,
+                invoiceNumber: row.invoice_number,
+                cashierId: row.cashier_id,
+                cashierName: row.cashier_name,
+                items: [],
+                subtotal: Number(row.subtotal),
+                taxAmount: Number(row.tax_amount),
+                discountAmount: Number(row.discount_amount),
+                totalAmount: Number(row.total_amount),
+                paymentMethod: row.payment_method,
+                amountTendered: Number(row.amount_tendered),
+                changeAmount: Number(row.change_amount),
+                customerName: row.customer_name,
+                createdAt: row.created_at,
+                status: row.status,
+              } as any;
+              return [mapped, ...prev];
+            });
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'inventory_logs' },
+          (payload) => {
+            const row = payload.new;
+            if (!row) return;
+            const newLog = {
+              id: row.id || `log_${Date.now()}`,
+              productId: row.product_id,
+              productName: row.product_name || '',
+              changeQuantity: Number(row.change_quantity),
+              previousStock: Number(row.previous_stock),
+              newStock: Number(row.new_stock),
+              reason: row.reason,
+              recordedBy: row.recorded_by,
+              timestamp: row.created_at || new Date().toISOString(),
+            };
+
+            // Insert log locally
+            setInventoryLogs((prev) => [newLog, ...prev]);
+
+            // Also update product stock locally if present
+            setProducts((prev) =>
+              prev.map((p) => (p.id === newLog.productId ? { ...p, stockQuantity: newLog.newStock, updatedAt: new Date().toISOString() } : p))
+            );
+            // record inventory log in history
+            recordHistory('inventory_log_created', 'inventory_log', newLog.id, newLog);
+          }
+        )
+        .subscribe();
+
+      return () => {
+        if (client && channel) client.removeChannel(channel);
+      };
+    } catch (err) {
+      console.warn('Realtime sales/inventory subscription error:', err);
     }
   }, [supabaseConfig.isConnected]);
 
@@ -502,6 +609,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }, [currentUser]);
 
+    const tempLock = useCallback(() => {
+      // Temporarily lock UI but preserve in-memory unsaved changes
+      try {
+        sessionStorage.setItem('freshmart_temp_locked_v1', '1');
+      } catch {}
+      setIsTemporarilyLocked(true);
+    }, []);
+
+    const unlockTemp = useCallback(() => {
+      try {
+        sessionStorage.removeItem('freshmart_temp_locked_v1');
+      } catch {}
+      setIsTemporarilyLocked(false);
+    }, []);
+
+    const recordHistory = useCallback(
+      (action: string, entity?: string, entityId?: string, details?: any) => {
+        const entry: SystemHistoryEntry = {
+          id: `hist_${Date.now()}`,
+          actorId: currentUser?.id,
+          actorName: currentUser?.name,
+          action,
+          entity,
+          entityId,
+          details: details && typeof details !== 'string' ? JSON.stringify(details) : details,
+          timestamp: new Date().toISOString(),
+        };
+
+        setHistory((prev) => {
+          const next = [entry, ...prev];
+          try {
+            localStorage.setItem('freshmart_system_history_v1', JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+
+        if (supabaseConfig.isConnected) {
+          recordSystemHistory({
+            id: entry.id,
+            actor_id: entry.actorId,
+            actor_name: entry.actorName,
+            action: entry.action,
+            entity: entry.entity,
+            entity_id: entry.entityId,
+            details: entry.details,
+            created_at: entry.timestamp,
+          }).catch((err) => console.warn('Could not record system history to Supabase:', err));
+        }
+      },
+      [currentUser, supabaseConfig.isConnected]
+    );
+
   // Role Checker
   const hasRole = useCallback(
     (roles: UserRole | UserRole[]) => {
@@ -542,6 +701,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (supabaseConfig.isConnected) {
       upsertSupabaseUser(user).catch((err) => console.warn('Could not upsert user to Supabase:', err));
     }
+    recordHistory('create_user', 'user', user.id, { name: user.name, role: user.role });
   }, []);
 
   const updateUser = useCallback((id: string, updates: Partial<User>) => {
@@ -552,6 +712,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const merged = { ...existing, ...updates };
       upsertSupabaseUser(merged).catch((err) => console.warn('Could not update user on Supabase:', err));
     }
+    recordHistory('update_user', 'user', id, updates);
   }, []);
 
   const deleteUser = useCallback((id: string) => {
@@ -565,6 +726,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (supabaseConfig.isConnected) {
       deleteSupabaseUser(id).catch((err) => console.warn('Could not delete user from Supabase:', err));
     }
+    recordHistory('delete_user', 'user', id, null);
   }, [currentUser.id]);
 
   // Web Notification Trigger
@@ -614,19 +776,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         timestamp: new Date().toISOString(),
       };
       setInventoryLogs((prev) => [log, ...prev]);
+
+      // Mirror product to Supabase if connected
+      if (supabaseConfig.isConnected) {
+        syncLocalProductsToSupabase([product]).catch((err) => console.warn('Could not sync new product to Supabase:', err));
+      }
+      recordHistory('create_product', 'product', product.id, { name: product.name, stock: product.stockQuantity });
     },
-    [currentUser.name]
+    [currentUser.name, supabaseConfig.isConnected]
   );
 
   const updateProduct = useCallback((id: string, updates: Partial<Product>) => {
     setProducts((prev) =>
       prev.map((p) => (p.id === id ? { ...p, ...updates, updatedAt: new Date().toISOString() } : p))
     );
-  }, []);
+    if (supabaseConfig.isConnected) {
+      const updated = products.find((p) => p.id === id);
+      const merged = { ...(updated ?? { id }), ...updates } as Product;
+      syncLocalProductsToSupabase([merged]).catch((err) => console.warn('Could not sync updated product to Supabase:', err));
+    }
+    recordHistory('update_product', 'product', id, updates);
+  }, [products, supabaseConfig.isConnected]);
 
   const deleteProduct = useCallback((id: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
-  }, []);
+    if (supabaseConfig.isConnected) {
+      const client = getSupabaseClient();
+      if (client) {
+        client.from('products').delete().eq('id', id).catch((err) => console.warn('Could not delete product from Supabase:', err));
+      }
+    }
+    recordHistory('delete_product', 'product', id, null);
+  }, [supabaseConfig.isConnected]);
 
   const adjustStock = useCallback(
     (productId: string, quantityChange: number, reason: InventoryLog['reason']) => {
@@ -677,8 +858,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return { ...p, stockQuantity: newStock, updatedAt: new Date().toISOString() };
         })
       );
+
+      // Persist inventory log and product update to Supabase
+      if (supabaseConfig.isConnected) {
+        const client = getSupabaseClient();
+        if (client) {
+          const logPayload = {
+            product_id: productId,
+            product_name: (() => {
+              const p = products.find((x) => x.id === productId);
+              return p ? p.name : '';
+            })(),
+            change_quantity: quantityChange,
+            previous_stock: (() => {
+              const p = products.find((x) => x.id === productId);
+              return p ? p.stockQuantity : 0;
+            })(),
+            new_stock: (() => {
+              const p = products.find((x) => x.id === productId);
+              return p ? Math.max(0, Number((p.stockQuantity + quantityChange).toFixed(2))) : 0;
+            })(),
+            reason,
+            recorded_by: currentUser.name,
+            created_at: new Date().toISOString(),
+          };
+          client.from('inventory_logs').insert([logPayload]).catch((err) => console.warn('Could not insert inventory_log to Supabase:', err));
+
+          // Sync the single product update
+          const updatedProduct = products.find((x) => x.id === productId);
+          if (updatedProduct) syncLocalProductsToSupabase([updatedProduct]).catch((err) => console.warn('Could not sync product stock to Supabase:', err));
+        }
+      }
     },
-    [currentUser.name, triggerNotification]
+    [currentUser.name, triggerNotification, products, supabaseConfig.isConnected]
   );
 
   // Cart operations
@@ -944,6 +1156,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
 
+      // Record history for the sale
+      recordHistory('create_sale', 'sale', newSale.id, { invoice: newSale.invoiceNumber, total: newSale.totalAmount });
+
       return { success: true, sale: newSale };
     },
     [cart, cartTotals, currentUser, sales.length, supabaseConfig.isConnected, triggerNotification]
@@ -1040,6 +1255,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     syncWithSupabase,
     // lock / logout
     lockApp,
+    // temporary lock
+    isTemporarilyLocked,
+    tempLock,
+    unlockTemp,
     authSignIn: async (email: string, password: string) => {
       const res = await authSignIn(email, password);
       if (!res.success) return { success: false, error: res.error };

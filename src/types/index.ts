@@ -141,3 +141,14 @@ export interface SupabaseConfig {
   isConnected: boolean;
   lastSyncedAt?: string;
 }
+
+export interface SystemHistoryEntry {
+  id: string;
+  actorId?: string;
+  actorName?: string;
+  action: string;
+  entity?: string;
+  entityId?: string;
+  details?: string; // JSON string or short description
+  timestamp: string;
+}
